@@ -1,12 +1,12 @@
 import csv
 import requests
 
-# reading data file
+# opening geojson file for writing
 r = open('routes.geojson', 'a', encoding='utf8')
 start = """\
 {
-    "type": "RouteCollection",
-    "routes": [
+    "type": "FeatureCollection",
+    "features": [
 """
 end = """    
     ]
@@ -15,13 +15,14 @@ end = """
 r.write(start)
 
 def router():
-        # returns a file object which is a buffered stream
-    with open('./nyc-taxi-trip-duration/test.csv', 'r') as f:
+        # opening data file...returns a file object which is a buffered stream
+    with open('dataset/taxi_data.csv', 'r') as f:
         # DictReader returns a reader object, which is iterable by row. each row is mapped to dict.
         data = csv.DictReader(f)
-        chunk = (next(data) for i in range(3))
+        # chunk = (next(data) for i in range(3)) # chunk for testing
 
-        for trip in chunk:
+        count = 1
+        for trip in data:
             # print(trip)
             # parameter dictionary for http call
             p = {
@@ -37,10 +38,12 @@ def router():
             }
             url = f'http://router.project-osrm.org/' \
                   f'{p["service"]}/{p["version"]}/{p["profile"]}/{p["coordinates"]}'
+            # res = requests.get(url, params)  # response object
             try:
                 res = requests.get(url, params) # response object
                 res.raise_for_status() # raise http error method
             except requests.exceptions.HTTPError: # handle httperror class
+                print("HTTPError!")
                 r.write(end)
                 r.close()
                 return
@@ -48,10 +51,15 @@ def router():
             route = res.json()['routes'][0]['geometry']
             route_geo = str({"geometry": route})
             route_geo = route_geo.replace("'",'"')
-            route_geo = route_geo + ',\n'
-            print(f'{route_geo}')
+            route_geo = '       '+route_geo + ',\n'
+            # print(f'{route_geo}')
             r.write(route_geo)
+            print(count)
+            count += 1
+        return
 
+
+router()
 r.write(end)
 r.close()
 
