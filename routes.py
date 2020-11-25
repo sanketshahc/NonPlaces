@@ -1,9 +1,10 @@
 import csv
 import requests
+import time
 import numpy
 
 # opening geojson file for writing
-r = open('test_paths.geojson', 'a', encoding='utf8')
+r = open('routes.geojson', 'a', encoding='utf8')
 start = """\
 {
     "type": "FeatureCollection",
@@ -17,7 +18,7 @@ r.write(start)
 
 def router():
         # opening data file...returns a file object which is a buffered stream
-    with open('test.csv', 'r') as f:
+    with open('dataset/taxi_data.csv', 'r') as f:
         # DictReader returns a reader object, which is iterable by row. each row is mapped to dict.
         data = csv.DictReader(f)
         # chunk = (next(data) for i in range(3)) # chunk for testing
@@ -26,6 +27,7 @@ def router():
         for trip in data:
             # print(trip)
             # parameter dictionary for http call
+
             p = {
                 'service': 'route',
                 'version': 'v1',
@@ -49,35 +51,80 @@ def router():
                 r.close()
                 return
 
+            # set time
+            t = '01-01-1971 ' + trip['pickup_datetime'].split(' ')[1]
+            dd = trip['pickup_datetime'].split(' ')[0] + 'T00:00:00Z'
+            tt = time.strptime(t, "%m-%d-%Y %H:%M:%S")
+            ttt = numpy.array([time.mktime(tt) + 1000000000], dtype = numpy.int64)
+            properties = {
+                "id": trip["id"],
+                "vendor_id": int(trip["vendor_id"]),
+                "pickup_date": dd,
+                "pickup_time": trip['pickup_datetime'].split(' ')[1],
+                "passenger_count": int(trip["passenger_count"]),
+                "pickup_longitude": float(trip["pickup_longitude"]),
+                "pickup_latitude": float(trip["pickup_latitude"]),
+                "dropoff_longitude": float(trip["dropoff_longitude"]),
+                "dropoff_latitude": float(trip["dropoff_latitude"])
+            }
+            # print(properties)
             # build list of ratios for timestamping
             norm = numpy.linalg.norm
-            dist = res.json()['routes'][0]['distance']
-            ways = res.json()['routes'][0]['geometry']['coordinates']
-            euclideans = numpy.zeros(len(ways))
-            for i, w in enumerate(ways):
-
-            euclidean_sum = [norm(x - ways[w+1]) for w, x in enumerate(ways)]
-            ratios = [norm(x - ways[w+1])/dist for w, x in enumerate(ways)]
-
-            for i, j in ways:
-                j += [0, ratios[i] * dist ]
-
-            route = res.json()['routes'][0]['duration']
+            duration = res.json()['routes'][0]['duration']
             route = res.json()['routes'][0]['geometry']
-            route_geo = str({"geometry": route})
+            ways = numpy.array(res.json()['routes'][0]['geometry']['coordinates'])
+            euclideans = numpy.zeros(len(ways))
+            for i in range(len(ways) - 1):
+                euclideans[i] = norm(ways[i] - ways[i+1])
+
+            esum = euclideans.sum()
+            if esum == 0:
+                continue
+            abs_ratios = euclideans / esum
+            ratios = []
+
+            def cum_r(base=0, i =0):
+                if base == 0:
+                    ratios.append(abs_ratios[i])
+                elif len(ratios) == len(abs_ratios)-1:
+                    ratios.append(0)
+                    return
+                else:
+                    ratios.append(abs_ratios[i]+base)
+                i += 1
+                cum_r(ratios[-1], i)
+
+            cum_r()
+            ratios = numpy.array(ratios)
+            durations = ((ratios * duration) + ttt).astype(numpy.int64)
+            durations = ttt.tolist() + durations.tolist()[:-1]
+            ways = ways.tolist()
+
+            for i, w in enumerate(ways):
+                w += [0, durations[i]]
+            route['coordinates'] = ways
+            route_geo = \
+                f"""
+                {{
+                    "type": "Feature",
+                    "geometry": {route},
+                    "properties": {properties}
+                }}
+                    """
+
+
             route_geo = route_geo.replace("'",'"')
             route_geo = '       '+route_geo + ',\n'
-            # print(f'{route_geo}')
             r.write(route_geo)
             print(count)
             count += 1
         return
 
-
 router()
 r.write(end)
 r.close()
-#
+
+
 # Model format geojson""
 # {
 #   "type": "FeatureCollection",
